@@ -66,10 +66,6 @@ type Msg
     | WeightsChanged
 
 
-
--- constants
-
-
 pointSize : Float
 pointSize =
     3.0
@@ -77,7 +73,7 @@ pointSize =
 
 canvasBackground : Color
 canvasBackground =
-    Color.white
+    Color.black
 
 
 weightEditor : Weight -> Html Msg
@@ -113,7 +109,6 @@ view model =
         [ style "display" "flex"
         , style "flex-direction" "column"
         , style "justify-content" "stretch"
-        , style "background-color" "#fffff0"
         , style "height" "100%"
         ]
         [ graph model.graphDimensions model.points model.weights
@@ -270,16 +265,46 @@ documentView model =
 canvasGraphLines : Dimensions -> Renderable
 canvasGraphLines dimensions =
     Canvas.shapes
-        [ stroke (Color.rgba 0 0 0 0.7)
-        , lineWidth 1
-        , lineDash [ 5 ]
+        [ stroke (Color.rgba 1 1 1 0.7)
+        , lineWidth 0
+        , lineDash [ 4, 6 ]
         ]
         [ Canvas.path
-            ( toFloat dimensions.width / 2, 0 )
-            [ Canvas.lineTo ( toFloat dimensions.width / 2, toFloat dimensions.height ) ]
+            ( toFloat dimensions.width / 2
+            , toFloat dimensions.height / 2
+            )
+            [ Canvas.lineTo
+                ( toFloat dimensions.width / 2
+                , toFloat dimensions.height
+                )
+            ]
         , Canvas.path
-            ( toFloat 0, toFloat dimensions.height / 2 )
-            [ Canvas.lineTo ( toFloat dimensions.width, toFloat dimensions.height / 2 ) ]
+            ( toFloat dimensions.width / 2
+            , toFloat dimensions.height / 2
+            )
+            [ Canvas.lineTo
+                ( toFloat dimensions.width / 2
+                , 0
+                )
+            ]
+        , Canvas.path
+            ( toFloat dimensions.width / 2
+            , toFloat dimensions.height / 2
+            )
+            [ Canvas.lineTo
+                ( 0
+                , toFloat dimensions.height / 2
+                )
+            ]
+        , Canvas.path
+            ( toFloat dimensions.width / 2
+            , toFloat dimensions.height / 2
+            )
+            [ Canvas.lineTo
+                ( toFloat dimensions.width
+                , toFloat dimensions.height / 2
+                )
+            ]
         ]
 
 
@@ -301,6 +326,11 @@ stepActivation x =
         0
 
 
+sigmoidActivation : ActivationFunction
+sigmoidActivation x =
+    1 / (1 + (e ^ (-0.01 * x)))
+
+
 graphPoints : Weights -> Dimensions -> List DataPoint -> Renderable
 graphPoints weights dimensions points =
     Canvas.group
@@ -308,7 +338,7 @@ graphPoints weights dimensions points =
         (List.map
             (\point ->
                 Canvas.shapes
-                    [ fill (pointColor stepActivation weights point) ]
+                    [ fill (pointColor sigmoidActivation weights point) ]
                     [ pointToCircle dimensions point ]
             )
             points
@@ -381,8 +411,8 @@ disabledPointRgb =
 enabledPointRgb : Rgb
 enabledPointRgb =
     { r = 1.0
-    , g = 0.2
-    , b = 0.0
+    , g = 0.8
+    , b = 0.3
     }
 
 
@@ -428,7 +458,7 @@ modelLine : Dimensions -> Weights -> Renderable
 modelLine dimensions weights =
     Canvas.shapes
         [ stroke Color.red
-        , lineWidth 2
+        , lineWidth 1
         ]
         [ Canvas.path
             ( 0
@@ -456,6 +486,7 @@ graph dimensions points weights =
         [ style "border" "1px solid black"
         , style "display" "block"
         , style "margin" "0 auto"
+        , style "line-height" "0"
         , Mouse.onClick (\event -> CanvasClicked event.offsetPos)
         ]
         [ Canvas.shapes

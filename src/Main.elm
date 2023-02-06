@@ -1,7 +1,7 @@
 module Main exposing (..)
 
 import Browser
-import Canvas exposing (Point, Renderable, Shape, rect)
+import Canvas exposing (Renderable, Shape)
 import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineDash, lineWidth)
 import Color exposing (Color)
@@ -11,13 +11,18 @@ import Html.Events exposing (onInput)
 import Html.Events.Extra.Mouse as Mouse
 
 
-type alias PointId =
+type alias ActivationFunction =
+    Float -> Float
+
+
+type alias DataPointId =
     String
 
 
-type alias Point2D =
-    { id : PointId
-    , x : Float
+type alias DataPoint =
+    { id : DataPointId
+    , x1 : Float
+    , x2 : Float
     , y : Float
     }
 
@@ -42,9 +47,13 @@ type alias Dimensions =
     }
 
 
+type alias Weights =
+    List Weight
+
+
 type alias Model =
-    { weights : List Weight
-    , points : List Point2D
+    { weights : Weights
+    , points : List DataPoint
     , graphDimensions : Dimensions
     }
 
@@ -52,7 +61,7 @@ type alias Model =
 type Msg
     = WeightValueChanged WeightId String
     | PointAdded Float Float
-    | PointRemoved PointId
+    | PointRemoved DataPointId
     | CanvasClicked ( Float, Float )
     | WeightsChanged
 
@@ -115,13 +124,13 @@ view model =
 initialModel : Model
 initialModel =
     { weights =
-        [ { id = "bias"
-          , value = 1.0
-          }
-        , { id = "w1"
+        [ { id = "w1"
           , value = 1.0
           }
         , { id = "w2"
+          , value = 1.0
+          }
+        , { id = "bias"
           , value = 1.0
           }
         ]
@@ -134,7 +143,7 @@ initialModel =
     }
 
 
-setWeightValue : WeightId -> WeightValue -> List Weight -> List Weight
+setWeightValue : WeightId -> WeightValue -> Weights -> Weights
 setWeightValue weightId weightValue weights =
     let
         replaceWeightValue weight =
@@ -167,10 +176,22 @@ update msg model =
             , Cmd.none
             )
 
-        PointAdded x y ->
+        PointAdded x1 x2 ->
+            let
+                point =
+                    { id = "new id"
+                    , x1 = x1
+                    , x2 = x2
+                    , y = 0
+                    }
+            in
             ( { model
                 | points =
-                    model.points ++ [ { id = "new id", x = x, y = y } ]
+                    model.points
+                        ++ [ { point
+                                | y = calculateValue model.weights point
+                             }
+                           ]
               }
             , Cmd.none
             )
@@ -262,29 +283,174 @@ canvasGraphLines dimensions =
         ]
 
 
-pointToCircle : Dimensions -> Point2D -> Shape
+pointToCircle : Dimensions -> DataPoint -> Shape
 pointToCircle dimensions point =
     Canvas.circle
-        ( toCanvasX dimensions.width point.x
-        , toCanvasY dimensions.height point.y
+        ( toCanvasX dimensions.width point.x1
+        , toCanvasY dimensions.height point.x2
         )
         pointSize
 
 
-graphPoints : Dimensions -> List Point2D -> Renderable
-graphPoints dimensions points =
+stepActivation : ActivationFunction
+stepActivation x =
+    if x > 0 then
+        1
+
+    else
+        0
+
+
+graphPoints : Weights -> Dimensions -> List DataPoint -> Renderable
+graphPoints weights dimensions points =
+    Canvas.group
+        []
+        (List.map
+            (\point ->
+                Canvas.shapes
+                    [ fill (pointColor stepActivation weights point) ]
+                    [ pointToCircle dimensions point ]
+            )
+            points
+        )
+
+
+firstWeightValue : Weights -> Float
+firstWeightValue weights =
+    case List.head weights of
+        Maybe.Just weight ->
+            weight.value
+
+        Maybe.Nothing ->
+            0
+
+
+secondWeight : Weights -> Float
+secondWeight weights =
+    case List.tail weights of
+        Maybe.Just weightsTail ->
+            case List.head weightsTail of
+                Maybe.Just weight ->
+                    weight.value
+
+                Maybe.Nothing ->
+                    0
+
+        Maybe.Nothing ->
+            0
+
+
+biasValue : Weights -> Float
+biasValue weights =
+    case List.head (List.reverse weights) of
+        Maybe.Just weight ->
+            weight.value
+
+        Maybe.Nothing ->
+            0
+
+
+calculateY : Float -> Weights -> Float
+calculateY x weights =
+    let
+        dividedBySecondWeight value =
+            value / secondWeight weights
+    in
+    -1
+        * (dividedBySecondWeight (firstWeightValue weights)
+            * x
+            + dividedBySecondWeight (biasValue weights)
+          )
+
+
+type alias Rgb =
+    { r : Float
+    , g : Float
+    , b : Float
+    }
+
+
+disabledPointRgb : Rgb
+disabledPointRgb =
+    { r = 0.3
+    , g = 0.2
+    , b = 1.0
+    }
+
+
+enabledPointRgb : Rgb
+enabledPointRgb =
+    { r = 1.0
+    , g = 0.2
+    , b = 0.0
+    }
+
+
+colorBetween : Rgb -> Rgb -> Float -> Rgb
+colorBetween from to percent =
+    { r = from.r + percent * (to.r - from.r)
+    , g = from.g + percent * (to.g - from.g)
+    , b = from.b + percent * (to.b - from.b)
+    }
+
+
+rgbToColor : Rgb -> Color
+rgbToColor rgb =
+    Color.rgb rgb.r rgb.g rgb.b
+
+
+weightList : Weights -> List Float
+weightList weights =
+    List.map .value weights
+
+
+calculateValue : Weights -> DataPoint -> Float
+calculateValue weights dataPoint =
+    List.foldl
+        (+)
+        0
+        (List.map2
+            (*)
+            [ dataPoint.x1, dataPoint.x2, 1 ]
+            (weightList weights)
+        )
+
+
+pointColor : ActivationFunction -> Weights -> DataPoint -> Color
+pointColor activationFunction weights point =
+    calculateValue weights point
+        |> activationFunction
+        |> colorBetween disabledPointRgb enabledPointRgb
+        |> rgbToColor
+
+
+modelLine : Dimensions -> Weights -> Renderable
+modelLine dimensions weights =
     Canvas.shapes
-        -- TODO: dynamic fill depending on weights
-        [ fill Color.blue ]
-        (List.map (pointToCircle dimensions) points)
+        [ stroke Color.red
+        , lineWidth 2
+        ]
+        [ Canvas.path
+            ( 0
+            , toCanvasY dimensions.height (calculateY (toGraphX dimensions.width 0) weights)
+            )
+            [ Canvas.lineTo
+                ( toFloat dimensions.width
+                , toCanvasY
+                    dimensions.height
+                    (calculateY
+                        (toGraphRelative
+                            dimensions.width
+                            (toFloat dimensions.width)
+                        )
+                        weights
+                    )
+                )
+            ]
+        ]
 
 
-modelLine : Dimensions -> List Weight -> Renderable
-modelLine _ _ =
-    Canvas.shapes [] []
-
-
-graph : Dimensions -> List Point2D -> List Weight -> Html Msg
+graph : Dimensions -> List DataPoint -> Weights -> Html Msg
 graph dimensions points weights =
     Canvas.toHtml ( dimensions.width, dimensions.height )
         [ style "border" "1px solid black"
@@ -300,7 +466,7 @@ graph dimensions points weights =
                 (toFloat dimensions.height)
             ]
         , canvasGraphLines dimensions
-        , graphPoints dimensions points
+        , graphPoints weights dimensions points
         , modelLine dimensions weights
         ]
 

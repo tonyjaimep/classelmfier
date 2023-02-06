@@ -338,7 +338,7 @@ graphPoints weights dimensions points =
         (List.map
             (\point ->
                 Canvas.shapes
-                    [ fill (pointColor sigmoidActivation weights point) ]
+                    [ fill (pointColor stepActivation weights point) ]
                     [ pointToCircle dimensions point ]
             )
             points

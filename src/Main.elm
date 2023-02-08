@@ -15,15 +15,20 @@ type alias ActivationFunction =
     Float -> Float
 
 
-type alias DataPointId =
+type alias NetworkOutput = Float
+
+
+type alias Network = NetworkInput -> NetworkOutput
+
+
+type alias NetworkInputId =
     String
 
 
-type alias DataPoint =
-    { id : DataPointId
+type alias NetworkInput =
+    { id : NetworkInputId
     , x1 : Float
     , x2 : Float
-    , y : Float
     }
 
 
@@ -51,17 +56,18 @@ type alias Weights =
     List Weight
 
 
+-- FIXME: model only has one neuron. Weights should be defined per neuron
 type alias Model =
     { weights : Weights
-    , points : List DataPoint
+    , inputs : List NetworkInput
     , graphDimensions : Dimensions
     }
 
 
 type Msg
     = WeightValueChanged WeightId String
-    | PointAdded Float Float
-    | PointRemoved DataPointId
+    | NetworkInputAdded NetworkInput
+    | NetworkInputRemoved NetworkInputId
     | CanvasClicked ( Float, Float )
     | WeightsChanged
 
@@ -103,6 +109,10 @@ controls model =
         (List.map weightEditor model.weights)
 
 
+network : Model -> Network
+network model input =
+    0.3
+
 view : Model -> Html Msg
 view model =
     div
@@ -111,7 +121,11 @@ view model =
         , style "justify-content" "stretch"
         , style "height" "100%"
         ]
-        [ graph model.graphDimensions model.points model.weights
+        [ div
+            [ style "display" "flex"
+            , style "justify-content" "space-between"]
+            [ graph model.graphDimensions model.inputs model.weights
+            , inputListing model.inputs (network model)]
         , controls model
         ]
 
@@ -129,7 +143,7 @@ initialModel =
           , value = 1.0
           }
         ]
-    , points =
+    , inputs =
         []
     , graphDimensions =
         { width = 500
@@ -171,41 +185,30 @@ update msg model =
             , Cmd.none
             )
 
-        PointAdded x1 x2 ->
-            let
-                point =
-                    { id = "new id"
-                    , x1 = x1
-                    , x2 = x2
-                    , y = 0
-                    }
-            in
-            ( { model
-                | points =
-                    model.points
-                        ++ [ { point
-                                | y = calculateValue model.weights point
-                             }
-                           ]
-              }
+        NetworkInputAdded input ->
+            ( { model | inputs = model.inputs ++ [ input ] }
             , Cmd.none
             )
 
-        PointRemoved pointId ->
+        NetworkInputRemoved inputId ->
             ( { model
-                | points =
-                    List.filter (\point -> point.id /= pointId) model.points
+                | inputs =
+                    List.filter (\input -> input.id /= inputId) model.inputs
               }
             , Cmd.none
             )
 
         CanvasClicked ( x, y ) ->
             update
-                (PointAdded
-                    (toGraphX model.graphDimensions.width x)
+                (NetworkInputAdded
+                {
+                  id="algo"
+                  , x1=(toGraphX model.graphDimensions.width x)
                     -- event y positions are top-to-bottom
                     -- we want bottom-to-top
-                    (toGraphY model.graphDimensions.height y)
+                   , x2=(toGraphY model.graphDimensions.height y)
+                }
+
                 )
                 model
 
@@ -308,11 +311,11 @@ canvasGraphLines dimensions =
         ]
 
 
-pointToCircle : Dimensions -> DataPoint -> Shape
-pointToCircle dimensions point =
+inputToShape : Dimensions -> NetworkInput -> Shape
+inputToShape dimensions input =
     Canvas.circle
-        ( toCanvasX dimensions.width point.x1
-        , toCanvasY dimensions.height point.x2
+        ( toCanvasX dimensions.width input.x1
+        , toCanvasY dimensions.height input.x2
         )
         pointSize
 
@@ -331,17 +334,17 @@ sigmoidActivation x =
     1 / (1 + (e ^ (-0.01 * x)))
 
 
-graphPoints : Weights -> Dimensions -> List DataPoint -> Renderable
-graphPoints weights dimensions points =
+graphPoints : Weights -> Dimensions -> List NetworkInput -> Renderable
+graphPoints weights dimensions inputs =
     Canvas.group
         []
         (List.map
             (\point ->
                 Canvas.shapes
                     [ fill (pointColor stepActivation weights point) ]
-                    [ pointToCircle dimensions point ]
+                    [ inputToShape dimensions point ]
             )
-            points
+    inputs
         )
 
 
@@ -400,16 +403,16 @@ type alias Rgb =
     }
 
 
-disabledPointRgb : Rgb
-disabledPointRgb =
+disabledOutputRgb : Rgb
+disabledOutputRgb =
     { r = 0.3
     , g = 0.2
     , b = 1.0
     }
 
 
-enabledPointRgb : Rgb
-enabledPointRgb =
+enabledOutputRgb : Rgb
+enabledOutputRgb =
     { r = 1.0
     , g = 0.8
     , b = 0.3
@@ -434,7 +437,7 @@ weightList weights =
     List.map .value weights
 
 
-calculateValue : Weights -> DataPoint -> Float
+calculateValue : Weights -> NetworkInput -> NetworkOutput
 calculateValue weights dataPoint =
     List.foldl
         (+)
@@ -446,11 +449,11 @@ calculateValue weights dataPoint =
         )
 
 
-pointColor : ActivationFunction -> Weights -> DataPoint -> Color
+pointColor : ActivationFunction -> Weights -> NetworkInput -> Color
 pointColor activationFunction weights point =
     calculateValue weights point
         |> activationFunction
-        |> colorBetween disabledPointRgb enabledPointRgb
+        |> colorBetween disabledOutputRgb enabledOutputRgb
         |> rgbToColor
 
 
@@ -480,8 +483,16 @@ modelLine dimensions weights =
         ]
 
 
-graph : Dimensions -> List DataPoint -> Weights -> Html Msg
-graph dimensions points weights =
+inputListing : List NetworkInput -> Network -> Html Msg
+inputListing inputs neuron =
+    let inputDetail input =
+          div [] [ text input.id ]
+    in div [] (List.map inputDetail inputs)
+
+
+
+graph : Dimensions -> List NetworkInput -> Weights -> Html Msg
+graph dimensions inputs weights =
     Canvas.toHtml ( dimensions.width, dimensions.height )
         [ style "border" "1px solid black"
         , style "display" "block"
@@ -497,7 +508,7 @@ graph dimensions points weights =
                 (toFloat dimensions.height)
             ]
         , canvasGraphLines dimensions
-        , graphPoints weights dimensions points
+        , graphPoints weights dimensions inputs
         , modelLine dimensions weights
         ]
 

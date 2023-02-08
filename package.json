@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "build": "elm make src/Main.elm --output=public/elm.js"
+  },
+  "dependencies": {
+    "@elm-tooling/elm-language-server": "^2.6.0"
+  },
+  "devDependencies": {
+    "elm": "^0.19.1-5",
+    "elm-format": "^0.8.5",
+    "elm-review": "^2.9.1",
+    "elm-test": "^0.19.1-revision11"
+  }
+}

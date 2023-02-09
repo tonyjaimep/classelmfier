@@ -15,10 +15,12 @@ type alias ActivationFunction =
     Float -> Float
 
 
-type alias NetworkOutput = Float
+type alias NetworkOutput =
+    Float
 
 
-type alias Network = NetworkInput -> NetworkOutput
+type alias Network =
+    NetworkInput -> NetworkOutput
 
 
 type alias NetworkInputId =
@@ -56,7 +58,10 @@ type alias Weights =
     List Weight
 
 
+
 -- FIXME: model only has one neuron. Weights should be defined per neuron
+
+
 type alias Model =
     { weights : Weights
     , inputs : List NetworkInput
@@ -109,12 +114,22 @@ controls model =
         (List.map weightEditor model.weights)
 
 
-network : Model -> Network
-network model input =
-    0.3
+neuronSigma : Model -> NetworkInput -> Float
+neuronSigma model input =
+    List.foldl
+        (+)
+        0
+        (List.map2 (*) [ input.x1, input.x2, 1 ] (weightList model.weights))
 
-view : Model -> Html Msg
-view model =
+
+networkForModel : Model -> ActivationFunction -> Network
+networkForModel model activation input =
+    neuronSigma model input
+        |> activation
+
+
+view : Model -> Network -> Html Msg
+view model network =
     div
         [ style "display" "flex"
         , style "flex-direction" "column"
@@ -123,9 +138,11 @@ view model =
         ]
         [ div
             [ style "display" "flex"
-            , style "justify-content" "space-between"]
-            [ graph model.graphDimensions model.inputs model.weights
-            , inputListing model.inputs (network model)]
+            , style "justify-content" "space-between"
+            ]
+            [ graph model.graphDimensions model.inputs network model.weights
+            , inputListing model.inputs network
+            ]
         , controls model
         ]
 
@@ -201,14 +218,13 @@ update msg model =
         CanvasClicked ( x, y ) ->
             update
                 (NetworkInputAdded
-                {
-                  id="algo"
-                  , x1=(toGraphX model.graphDimensions.width x)
+                    { id = "algo"
+                    , x1 = toGraphX model.graphDimensions.width x
+
                     -- event y positions are top-to-bottom
                     -- we want bottom-to-top
-                   , x2=(toGraphY model.graphDimensions.height y)
-                }
-
+                    , x2 = toGraphY model.graphDimensions.height y
+                    }
                 )
                 model
 
@@ -260,8 +276,12 @@ toCanvasY graphDimension value =
 
 documentView : Model -> Browser.Document Msg
 documentView model =
+    let
+        network =
+            networkForModel model sigmoidActivation
+    in
     { title = "Classelmfier"
-    , body = [ view model ]
+    , body = [ view model network ]
     }
 
 
@@ -334,17 +354,21 @@ sigmoidActivation x =
     1 / (1 + (e ^ (-0.01 * x)))
 
 
-graphPoints : Weights -> Dimensions -> List NetworkInput -> Renderable
-graphPoints weights dimensions inputs =
+graphPoints : Network -> Dimensions -> List NetworkInput -> Renderable
+graphPoints network dimensions inputs =
     Canvas.group
         []
         (List.map
-            (\point ->
+            (\input ->
                 Canvas.shapes
-                    [ fill (pointColor stepActivation weights point) ]
-                    [ inputToShape dimensions point ]
+                    [ input
+                        |> network
+                        |> networkOutputColor
+                        |> fill
+                    ]
+                    [ inputToShape dimensions input ]
             )
-    inputs
+            inputs
         )
 
 
@@ -449,10 +473,9 @@ calculateValue weights dataPoint =
         )
 
 
-pointColor : ActivationFunction -> Weights -> NetworkInput -> Color
-pointColor activationFunction weights point =
-    calculateValue weights point
-        |> activationFunction
+networkOutputColor : NetworkOutput -> Color
+networkOutputColor output =
+    output
         |> colorBetween disabledOutputRgb enabledOutputRgb
         |> rgbToColor
 
@@ -483,20 +506,61 @@ modelLine dimensions weights =
         ]
 
 
+outputColorCircleHtml : NetworkOutput -> Html Msg
+outputColorCircleHtml output =
+    div
+        [ style "width" "1rem"
+        , style "height" "1rem"
+        , style "border-radius" "0.5rem"
+        , output
+            |> networkOutputColor
+            |> Color.toCssString
+            |> style "background-color"
+        ]
+        []
+
+
+inputDetail : Network -> NetworkInput -> Html Msg
+inputDetail network networkInput =
+    let
+        output =
+            network networkInput
+    in
+    div
+        [ style "display" "flex"
+        , style "flex-direction" "row"
+        , style "align-items" "center"
+        , style "gap" "1rem"
+        ]
+        [ outputColorCircleHtml output
+        , text "("
+        , networkInput.x1
+            |> String.fromFloat
+            |> text
+        , text ","
+        , networkInput.x2
+            |> String.fromFloat
+            |> text
+        , text ")"
+        ]
+
+
 inputListing : List NetworkInput -> Network -> Html Msg
-inputListing inputs neuron =
-    let inputDetail input =
-          div [] [ text input.id ]
-    in div [] (List.map inputDetail inputs)
+inputListing inputs network =
+    div
+        [ style "overflow" "scroll"
+        , style "display" "flex"
+        , style "flex-direction" "column"
+        , style "gap" "1rem"
+        ]
+        (List.map (inputDetail network) inputs)
 
 
-
-graph : Dimensions -> List NetworkInput -> Weights -> Html Msg
-graph dimensions inputs weights =
+graph : Dimensions -> List NetworkInput -> Network -> Weights -> Html Msg
+graph dimensions inputs network weights =
     Canvas.toHtml ( dimensions.width, dimensions.height )
         [ style "border" "1px solid black"
         , style "display" "block"
-        , style "margin" "0 auto"
         , style "line-height" "0"
         , Mouse.onClick (\event -> CanvasClicked event.offsetPos)
         ]
@@ -508,7 +572,7 @@ graph dimensions inputs weights =
                 (toFloat dimensions.height)
             ]
         , canvasGraphLines dimensions
-        , graphPoints weights dimensions inputs
+        , graphPoints network dimensions inputs
         , modelLine dimensions weights
         ]
 

@@ -1,0 +1,41 @@
+.weight-editor {
+  display: flex;
+  flex-direction: column;
+}
+
+.weight-controls {
+  display: flex;
+  justify-content: space-between;
+}
+
+
+.view-container {
+  display; "flex";
+  flex-direction: "column";
+  justify-content: "stretch";
+  height: "100%";
+}
+
+.network-data-container {
+  display: flex;
+  justify-content: space-between;
+}
+
+.network-output-circle {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.5rem;
+}
+
+.network-input-detail {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+}
+.network-input-listing {
+  overflow: scroll;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

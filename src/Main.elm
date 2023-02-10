@@ -6,7 +6,7 @@ import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineDash, lineWidth)
 import Color exposing (Color)
 import Html exposing (Html, div, input, label, text)
-import Html.Attributes exposing (style, type_, value)
+import Html.Attributes exposing (class, style, type_, value)
 import Html.Events exposing (onInput)
 import Html.Events.Extra.Mouse as Mouse
 
@@ -90,9 +90,7 @@ canvasBackground =
 weightEditor : Weight -> Html Msg
 weightEditor weight =
     div
-        [ style "display" "flex"
-        , style "flex-direction" "column"
-        ]
+        [ class "weight-editor" ]
         [ label
             []
             [ text weight.id ]
@@ -108,9 +106,7 @@ weightEditor weight =
 controls : Model -> Html Msg
 controls model =
     div
-        [ style "display" "flex"
-        , style "justify-content" "space-between"
-        ]
+        [ class "weight-controls" ]
         (List.map weightEditor model.weights)
 
 
@@ -131,15 +127,9 @@ networkForModel model activation input =
 view : Model -> Network -> Html Msg
 view model network =
     div
-        [ style "display" "flex"
-        , style "flex-direction" "column"
-        , style "justify-content" "stretch"
-        , style "height" "100%"
-        ]
+        [ class "view-container" ]
         [ div
-            [ style "display" "flex"
-            , style "justify-content" "space-between"
-            ]
+            [ class "network-data-container" ]
             [ graph model.graphDimensions model.inputs network model.weights
             , inputListing model.inputs network
             ]
@@ -509,9 +499,7 @@ modelLine dimensions weights =
 outputColorCircleHtml : NetworkOutput -> Html Msg
 outputColorCircleHtml output =
     div
-        [ style "width" "1rem"
-        , style "height" "1rem"
-        , style "border-radius" "0.5rem"
+        [ class "network-output-circle"
         , output
             |> networkOutputColor
             |> Color.toCssString
@@ -527,11 +515,7 @@ inputDetail network networkInput =
             network networkInput
     in
     div
-        [ style "display" "flex"
-        , style "flex-direction" "row"
-        , style "align-items" "center"
-        , style "gap" "1rem"
-        ]
+        [ class "network-input-detail" ]
         [ outputColorCircleHtml output
         , text "("
         , networkInput.x1
@@ -548,22 +532,14 @@ inputDetail network networkInput =
 inputListing : List NetworkInput -> Network -> Html Msg
 inputListing inputs network =
     div
-        [ style "overflow" "scroll"
-        , style "display" "flex"
-        , style "flex-direction" "column"
-        , style "gap" "1rem"
-        ]
+        [ class "network-input-listing" ]
         (List.map (inputDetail network) inputs)
 
 
 graph : Dimensions -> List NetworkInput -> Network -> Weights -> Html Msg
 graph dimensions inputs network weights =
     Canvas.toHtml ( dimensions.width, dimensions.height )
-        [ style "border" "1px solid black"
-        , style "display" "block"
-        , style "line-height" "0"
-        , Mouse.onClick (\event -> CanvasClicked event.offsetPos)
-        ]
+        [ Mouse.onClick (\event -> CanvasClicked event.offsetPos) ]
         [ Canvas.shapes
             [ fill canvasBackground ]
             [ Canvas.rect

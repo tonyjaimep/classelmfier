@@ -538,18 +538,21 @@ inputListing inputs network =
 
 graph : Dimensions -> List NetworkInput -> Network -> Weights -> Html Msg
 graph dimensions inputs network weights =
-    Canvas.toHtml ( dimensions.width, dimensions.height )
-        [ Mouse.onClick (\event -> CanvasClicked event.offsetPos) ]
-        [ Canvas.shapes
-            [ fill canvasBackground ]
-            [ Canvas.rect
-                ( 0, 0 )
-                (toFloat dimensions.width)
-                (toFloat dimensions.height)
+    div
+        [ class "graph-container" ]
+        [ Canvas.toHtml ( dimensions.width, dimensions.height )
+            [ Mouse.onClick (\event -> CanvasClicked event.offsetPos) ]
+            [ Canvas.shapes
+                [ fill canvasBackground ]
+                [ Canvas.rect
+                    ( 0, 0 )
+                    (toFloat dimensions.width)
+                    (toFloat dimensions.height)
+                ]
+            , canvasGraphLines dimensions
+            , graphPoints network dimensions inputs
+            , modelLine dimensions weights
             ]
-        , canvasGraphLines dimensions
-        , graphPoints network dimensions inputs
-        , modelLine dimensions weights
         ]
 
 

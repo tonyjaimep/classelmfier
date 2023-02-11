@@ -268,7 +268,7 @@ documentView : Model -> Browser.Document Msg
 documentView model =
     let
         network =
-            networkForModel model sigmoidActivation
+            networkForModel model stepActivation
     in
     { title = "Classelmfier"
     , body = [ view model network ]

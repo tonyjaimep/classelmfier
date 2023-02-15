@@ -5,9 +5,9 @@ import Canvas exposing (Renderable, Shape)
 import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineDash, lineWidth)
 import Color exposing (Color)
-import Html exposing (Html, div, input, label, text)
+import Html exposing (Html, button, div, input, label, text)
 import Html.Attributes exposing (class, style, type_, value)
-import Html.Events exposing (onInput)
+import Html.Events exposing (onClick, onInput)
 import Html.Events.Extra.Mouse as Mouse
 
 
@@ -75,6 +75,7 @@ type Msg
     | NetworkInputRemoved NetworkInputId
     | CanvasClicked ( Float, Float )
     | WeightsChanged
+    | NetworkInputsCleared
 
 
 pointSize : Float
@@ -204,6 +205,9 @@ update msg model =
               }
             , Cmd.none
             )
+
+        NetworkInputsCleared ->
+            ( { model | inputs = [] }, Cmd.none )
 
         CanvasClicked ( x, y ) ->
             update
@@ -529,11 +533,30 @@ inputDetail network networkInput =
         ]
 
 
+inputClearingButton : Html Msg
+inputClearingButton =
+    button
+        [ onClick NetworkInputsCleared ]
+        [ text "Clear inputs" ]
+
+
 inputListing : List NetworkInput -> Network -> Html Msg
 inputListing inputs network =
+    let
+        inputControls =
+            if List.length inputs > 0 then
+                [ inputClearingButton ]
+
+            else
+                []
+    in
     div
         [ class "network-input-listing" ]
-        (List.map (inputDetail network) inputs)
+        (inputControls
+            ++ List.map
+                (inputDetail network)
+                inputs
+        )
 
 
 graph : Dimensions -> List NetworkInput -> Network -> Weights -> Html Msg

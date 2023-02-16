@@ -31,6 +31,7 @@ type alias NetworkInput =
     { id : NetworkInputId
     , x1 : Float
     , x2 : Float
+    , expectedOutput : NetworkOutput
     }
 
 
@@ -58,14 +59,11 @@ type alias Weights =
     List Weight
 
 
-
--- FIXME: model only has one neuron. Weights should be defined per neuron
-
-
 type alias Model =
     { weights : Weights
     , inputs : List NetworkInput
     , graphDimensions : Dimensions
+    , activation : ActivationFunction
     }
 
 
@@ -74,13 +72,18 @@ type Msg
     | NetworkInputAdded NetworkInput
     | NetworkInputRemoved NetworkInputId
     | CanvasClicked ( Float, Float )
-    | WeightsChanged
     | NetworkInputsCleared
+    | EpochUpdate
 
 
 pointSize : Float
 pointSize =
     3.0
+
+
+learningRate : Float
+learningRate =
+    0.4
 
 
 canvasBackground : Color
@@ -119,10 +122,10 @@ neuronSigma model input =
         (List.map2 (*) [ input.x1, input.x2, 1 ] (weightList model.weights))
 
 
-networkForModel : Model -> ActivationFunction -> Network
-networkForModel model activation input =
+networkForModel : Model -> Network
+networkForModel model input =
     neuronSigma model input
-        |> activation
+        |> model.activation
 
 
 view : Model -> Network -> Html Msg
@@ -157,6 +160,7 @@ initialModel =
         { width = 500
         , height = 500
         }
+    , activation = stepActivation
     }
 
 
@@ -171,6 +175,28 @@ setWeightValue weightId weightValue weights =
                 weight
     in
     List.map replaceWeightValue weights
+
+
+networkErrors : Network -> List NetworkInput -> List Float
+networkErrors network inputs =
+    List.map2
+        (\expected -> \output -> expected - output)
+        (List.map .expectedOutput inputs)
+        (List.map network inputs)
+
+
+adjustedWeight : Float -> Weight -> NetworkInput -> Weight
+adjustedWeight error weight input =
+    { weight | value = weight.value + weightDelta error weight.value }
+
+
+adjustedWeights : Network -> Model -> Weights
+adjustedWeights network model =
+    let
+        errors =
+            networkErrors network model.inputs
+    in
+    List.map3 adjustedWeight errors model.weights model.inputs
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -218,12 +244,13 @@ update msg model =
                     -- event y positions are top-to-bottom
                     -- we want bottom-to-top
                     , x2 = toGraphY model.graphDimensions.height y
+                    , expectedOutput = 0
                     }
                 )
                 model
 
-        WeightsChanged ->
-            ( model, Cmd.none )
+        EpochUpdate ->
+            ( { model | weights = adjustedWeights model }, Cmd.none )
 
 
 type alias GraphicValueTransformer =
@@ -453,6 +480,11 @@ rgbToColor rgb =
 weightList : Weights -> List Float
 weightList weights =
     List.map .value weights
+
+
+weightDelta : Float -> NetworkOutput -> Float
+weightDelta error output =
+    learningRate * error * output
 
 
 calculateValue : Weights -> NetworkInput -> NetworkOutput

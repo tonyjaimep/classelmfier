@@ -5,10 +5,15 @@ import Canvas exposing (Renderable, Shape)
 import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineDash, lineWidth)
 import Color exposing (Color)
-import Html exposing (Html, button, div, input, label, text)
-import Html.Attributes exposing (class, style, type_, value)
+import Html exposing (Html, aside, button, div, input, label, text)
+import Html.Attributes exposing (class, readonly, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Html.Events.Extra.Mouse as Mouse
+
+
+
+-- Notes
+-- - DataPoint should be renamed as NeuronInputLayer
 
 
 type alias ActivationFunction =
@@ -20,15 +25,15 @@ type alias NetworkOutput =
 
 
 type alias Network =
-    NetworkInput -> NetworkOutput
+    DataPoint -> NetworkOutput
 
 
-type alias NetworkInputId =
+type alias DataPointId =
     String
 
 
-type alias NetworkInput =
-    { id : NetworkInputId
+type alias DataPoint =
+    { id : DataPointId
     , x1 : Float
     , x2 : Float
     , expectedOutput : NetworkOutput
@@ -61,19 +66,25 @@ type alias Weights =
 
 type alias Model =
     { weights : Weights
-    , inputs : List NetworkInput
+    , dataPoints : List DataPoint
     , graphDimensions : Dimensions
     , activation : ActivationFunction
+    , isTraining : Bool
+    , epochs : Int
+    , nextExpectedOutput : Float
     }
 
 
 type Msg
     = WeightValueChanged WeightId String
-    | NetworkInputAdded NetworkInput
-    | NetworkInputRemoved NetworkInputId
+    | DataPointAdded DataPoint
+    | DataPointRemoved DataPointId
+    | DataPointTypeChanged Float
     | CanvasClicked ( Float, Float )
-    | NetworkInputsCleared
-    | EpochUpdate
+    | DataPointsCleared
+    | Epoch
+    | TrainingStarted
+    | TrainingStopped
 
 
 pointSize : Float
@@ -100,6 +111,7 @@ weightEditor weight =
             [ text weight.id ]
         , input
             [ type_ "number"
+            , readonly True
             , value (String.fromFloat weight.value)
             , onInput (WeightValueChanged weight.id)
             ]
@@ -114,12 +126,12 @@ controls model =
         (List.map weightEditor model.weights)
 
 
-neuronSigma : Model -> NetworkInput -> Float
-neuronSigma model input =
+neuronSigma : Model -> DataPoint -> Float
+neuronSigma model dataPoint =
     List.foldl
         (+)
         0
-        (List.map2 (*) [ input.x1, input.x2, 1 ] (weightList model.weights))
+        (List.map2 (*) [ dataPoint.x1, dataPoint.x2, 1 ] (weightValues model.weights))
 
 
 networkForModel : Model -> Network
@@ -128,14 +140,18 @@ networkForModel model input =
         |> model.activation
 
 
-view : Model -> Network -> Html Msg
-view model network =
+view : Model -> Html Msg
+view model =
+    let
+        network =
+            networkForModel model
+    in
     div
         [ class "view-container" ]
         [ div
             [ class "network-data-container" ]
-            [ graph model.graphDimensions model.inputs network model.weights
-            , inputListing model.inputs network
+            [ graph model network
+            , sidebar model.dataPoints network
             ]
         , controls model
         ]
@@ -154,13 +170,16 @@ initialModel =
           , value = 1.0
           }
         ]
-    , inputs =
+    , dataPoints =
         []
     , graphDimensions =
         { width = 500
         , height = 500
         }
     , activation = stepActivation
+    , isTraining = False
+    , epochs = 0
+    , nextExpectedOutput = 1
     }
 
 
@@ -177,26 +196,44 @@ setWeightValue weightId weightValue weights =
     List.map replaceWeightValue weights
 
 
-networkErrors : Network -> List NetworkInput -> List Float
-networkErrors network inputs =
+networkErrors : Network -> List DataPoint -> List Float
+networkErrors network dataPoints =
     List.map2
         (\expected -> \output -> expected - output)
-        (List.map .expectedOutput inputs)
-        (List.map network inputs)
+        (List.map .expectedOutput dataPoints)
+        (List.map network dataPoints)
 
 
-adjustedWeight : Float -> Weight -> NetworkInput -> Weight
-adjustedWeight error weight input =
-    { weight | value = weight.value + weightDelta error weight.value }
+adjustedWeight : Float -> Weight -> Float -> Weight
+adjustedWeight error weight dataDimension =
+    { weight
+        | value =
+            weight.value + (dataDimension * error * learningRate)
+    }
 
 
-adjustedWeights : Network -> Model -> Weights
-adjustedWeights network model =
+adjustedWeights : DataPoint -> Model -> Weights
+adjustedWeights dataPoint model =
     let
-        errors =
-            networkErrors network model.inputs
+        network =
+            networkForModel model
+
+        error =
+            dataPoint.expectedOutput - network dataPoint
     in
-    List.map3 adjustedWeight errors model.weights model.inputs
+    List.map2
+        (adjustedWeight error)
+        model.weights
+        (dataPointVector dataPoint)
+
+
+modelWithAdjustedWeights : Model -> Model
+modelWithAdjustedWeights model =
+    let
+        adjustedForDataPoint dataPoint model_ =
+            { model_ | weights = adjustedWeights dataPoint model_ }
+    in
+    List.foldl adjustedForDataPoint model model.dataPoints
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -219,38 +256,52 @@ update msg model =
             , Cmd.none
             )
 
-        NetworkInputAdded input ->
-            ( { model | inputs = model.inputs ++ [ input ] }
+        DataPointAdded input ->
+            ( { model | dataPoints = model.dataPoints ++ [ input ] }
             , Cmd.none
             )
 
-        NetworkInputRemoved inputId ->
+        DataPointRemoved inputId ->
             ( { model
-                | inputs =
-                    List.filter (\input -> input.id /= inputId) model.inputs
+                | dataPoints =
+                    List.filter (\input -> input.id /= inputId) model.dataPoints
               }
             , Cmd.none
             )
 
-        NetworkInputsCleared ->
-            ( { model | inputs = [] }, Cmd.none )
+        DataPointsCleared ->
+            ( { model | dataPoints = [] }, Cmd.none )
+
+        DataPointTypeChanged nextExpectedOutput ->
+            ( { model | nextExpectedOutput = nextExpectedOutput }, Cmd.none )
 
         CanvasClicked ( x, y ) ->
             update
-                (NetworkInputAdded
+                (DataPointAdded
                     { id = "algo"
                     , x1 = toGraphX model.graphDimensions.width x
-
-                    -- event y positions are top-to-bottom
-                    -- we want bottom-to-top
                     , x2 = toGraphY model.graphDimensions.height y
-                    , expectedOutput = 0
+                    , expectedOutput = model.nextExpectedOutput
                     }
                 )
                 model
 
-        EpochUpdate ->
-            ( { model | weights = adjustedWeights model }, Cmd.none )
+        Epoch ->
+            let
+                adjusted =
+                    modelWithAdjustedWeights model
+            in
+            ( { adjusted
+                | epochs = model.epochs + 1
+              }
+            , Cmd.none
+            )
+
+        TrainingStarted ->
+            ( { model | isTraining = True }, Cmd.none )
+
+        TrainingStopped ->
+            ( { model | isTraining = False }, Cmd.none )
 
 
 type alias GraphicValueTransformer =
@@ -276,10 +327,6 @@ toGraphY graphHeight y =
     -1 * toGraphRelative graphHeight y
 
 
-
--- assuming proportion is 1:1
-
-
 toCanvasRelative : GraphicValueTransformer
 toCanvasRelative graphDimension value =
     Basics.toFloat graphDimension / 2 + value
@@ -297,12 +344,8 @@ toCanvasY graphDimension value =
 
 documentView : Model -> Browser.Document Msg
 documentView model =
-    let
-        network =
-            networkForModel model stepActivation
-    in
     { title = "Classelmfier"
-    , body = [ view model network ]
+    , body = [ view model ]
     }
 
 
@@ -352,7 +395,7 @@ canvasGraphLines dimensions =
         ]
 
 
-inputToShape : Dimensions -> NetworkInput -> Shape
+inputToShape : Dimensions -> DataPoint -> Shape
 inputToShape dimensions input =
     Canvas.circle
         ( toCanvasX dimensions.width input.x1
@@ -375,21 +418,24 @@ sigmoidActivation x =
     1 / (1 + (e ^ (-0.01 * x)))
 
 
-graphPoints : Network -> Dimensions -> List NetworkInput -> Renderable
-graphPoints network dimensions inputs =
+graphPoints : Network -> Dimensions -> List DataPoint -> Renderable
+graphPoints network dimensions dataPoints =
     Canvas.group
-        []
+        [ lineWidth (pointSize / 2) ]
         (List.map
-            (\input ->
+            (\dataPoint ->
                 Canvas.shapes
-                    [ input
+                    [ dataPoint
                         |> network
                         |> networkOutputColor
                         |> fill
+                    , dataPoint.expectedOutput
+                        |> networkOutputColor
+                        |> stroke
                     ]
-                    [ inputToShape dimensions input ]
+                    [ inputToShape dimensions dataPoint ]
             )
-            inputs
+            dataPoints
         )
 
 
@@ -477,8 +523,8 @@ rgbToColor rgb =
     Color.rgb rgb.r rgb.g rgb.b
 
 
-weightList : Weights -> List Float
-weightList weights =
+weightValues : Weights -> List Float
+weightValues weights =
     List.map .value weights
 
 
@@ -487,16 +533,9 @@ weightDelta error output =
     learningRate * error * output
 
 
-calculateValue : Weights -> NetworkInput -> NetworkOutput
-calculateValue weights dataPoint =
-    List.foldl
-        (+)
-        0
-        (List.map2
-            (*)
-            [ dataPoint.x1, dataPoint.x2, 1 ]
-            (weightList weights)
-        )
+dataPointVector : DataPoint -> List Float
+dataPointVector dataPoint =
+    [ dataPoint.x1, dataPoint.x2, 1 ]
 
 
 networkOutputColor : NetworkOutput -> Color
@@ -532,33 +571,37 @@ modelLine dimensions weights =
         ]
 
 
-outputColorCircleHtml : NetworkOutput -> Html Msg
-outputColorCircleHtml output =
+outputColorCircleHtml : NetworkOutput -> NetworkOutput -> Html Msg
+outputColorCircleHtml output expectedOutput =
     div
         [ class "network-output-circle"
         , output
             |> networkOutputColor
             |> Color.toCssString
             |> style "background-color"
+        , expectedOutput
+            |> networkOutputColor
+            |> Color.toCssString
+            |> style "border-color"
         ]
         []
 
 
-inputDetail : Network -> NetworkInput -> Html Msg
-inputDetail network networkInput =
+inputDetail : Network -> DataPoint -> Html Msg
+inputDetail network dataPoint =
     let
         output =
-            network networkInput
+            network dataPoint
     in
     div
-        [ class "network-input-detail" ]
-        [ outputColorCircleHtml output
+        [ class "data-point-detail" ]
+        [ outputColorCircleHtml output dataPoint.expectedOutput
         , text "("
-        , networkInput.x1
+        , dataPoint.x1
             |> String.fromFloat
             |> text
         , text ","
-        , networkInput.x2
+        , dataPoint.x2
             |> String.fromFloat
             |> text
         , text ")"
@@ -568,46 +611,97 @@ inputDetail network networkInput =
 inputClearingButton : Html Msg
 inputClearingButton =
     button
-        [ onClick NetworkInputsCleared ]
-        [ text "Clear inputs" ]
+        [ onClick DataPointsCleared ]
+        [ text "Clear data points" ]
 
 
-inputListing : List NetworkInput -> Network -> Html Msg
-inputListing inputs network =
-    let
-        inputControls =
-            if List.length inputs > 0 then
-                [ inputClearingButton ]
+startTrainingButton : Html Msg
+startTrainingButton =
+    button
+        [ onClick Epoch ]
+        [ text "Start training" ]
 
-            else
-                []
-    in
+
+dataPointListing : List DataPoint -> Network -> Html Msg
+dataPointListing dataPoints network =
     div
-        [ class "network-input-listing" ]
-        (inputControls
-            ++ List.map
-                (inputDetail network)
-                inputs
+        [ class "data-point-listing" ]
+        (List.map
+            (inputDetail network)
+            dataPoints
         )
 
 
-graph : Dimensions -> List NetworkInput -> Network -> Weights -> Html Msg
-graph dimensions inputs network weights =
-    div
-        [ class "graph-container" ]
-        [ Canvas.toHtml ( dimensions.width, dimensions.height )
-            [ Mouse.onClick (\event -> CanvasClicked event.offsetPos) ]
+inputControls : List DataPoint -> Html Msg
+inputControls dataPoints =
+    if List.length dataPoints > 0 then
+        inputClearingButton
+
+    else
+        Html.text ""
+
+
+expectedOutputControl : Html Msg
+expectedOutputControl =
+    input
+        [ type_ "range"
+        , Html.Attributes.min "0"
+        , Html.Attributes.max "1"
+        , Html.Attributes.step "1"
+        , onInput
+            (\v ->
+                String.toFloat v
+                    |> Maybe.withDefault 0.3
+                    |> DataPointTypeChanged
+            )
+        ]
+        []
+
+
+sidebar : List DataPoint -> Network -> Html Msg
+sidebar dataPoints network =
+    aside
+        []
+        [ expectedOutputControl
+        , startTrainingButton
+        , inputControls dataPoints
+        , dataPointListing dataPoints network
+        ]
+
+
+graphCanvasContent : Model -> Network -> List Canvas.Renderable
+graphCanvasContent model network =
+    let
+        contentWithoutLine =
             [ Canvas.shapes
                 [ fill canvasBackground ]
                 [ Canvas.rect
                     ( 0, 0 )
-                    (toFloat dimensions.width)
-                    (toFloat dimensions.height)
+                    (toFloat model.graphDimensions.width)
+                    (toFloat model.graphDimensions.height)
                 ]
-            , canvasGraphLines dimensions
-            , graphPoints network dimensions inputs
-            , modelLine dimensions weights
+            , canvasGraphLines model.graphDimensions
+            , graphPoints network model.graphDimensions model.dataPoints
             ]
+    in
+    if model.epochs > 0 then
+        contentWithoutLine
+            ++ [ modelLine model.graphDimensions model.weights ]
+
+    else
+        contentWithoutLine
+
+
+graph : Model -> Network -> Html Msg
+graph model network =
+    div
+        [ class "graph-container" ]
+        [ Canvas.toHtml
+            ( model.graphDimensions.width
+            , model.graphDimensions.height
+            )
+            [ Mouse.onClick (\event -> CanvasClicked event.offsetPos) ]
+            (graphCanvasContent model network)
         ]
 
 

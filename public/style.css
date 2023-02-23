@@ -83,3 +83,13 @@ aside {
 input {
   font-family: inherit;
 }
+
+.expected-output-label {
+  display: flex;
+}
+
+.expected-output-label {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}

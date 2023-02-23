@@ -9,11 +9,8 @@ import Html exposing (Html, aside, button, div, input, label, text)
 import Html.Attributes exposing (class, readonly, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Html.Events.Extra.Mouse as Mouse
-
-
-
--- Notes
--- - DataPoint should be renamed as NeuronInputLayer
+import Random
+import Time
 
 
 type alias ActivationFunction =
@@ -77,6 +74,7 @@ type alias Model =
 
 type Msg
     = WeightValueChanged WeightId String
+    | WeightValueSet WeightId WeightValue
     | DataPointAdded DataPoint
     | DataPointRemoved DataPointId
     | DataPointTypeChanged Float
@@ -85,6 +83,7 @@ type Msg
     | Epoch
     | TrainingStarted
     | TrainingStopped
+    | TrainingTick
 
 
 pointSize : Float
@@ -95,6 +94,16 @@ pointSize =
 learningRate : Float
 learningRate =
     0.4
+
+
+epochLimit : Int
+epochLimit =
+    500
+
+
+canvasSize : Int
+canvasSize =
+    500
 
 
 canvasBackground : Color
@@ -151,7 +160,7 @@ view model =
         [ div
             [ class "network-data-container" ]
             [ graph model network
-            , sidebar model.dataPoints network
+            , sidebar model network
             ]
         , controls model
         ]
@@ -173,8 +182,8 @@ initialModel =
     , dataPoints =
         []
     , graphDimensions =
-        { width = 500
-        , height = 500
+        { width = canvasSize
+        , height = canvasSize
         }
     , activation = stepActivation
     , isTraining = False
@@ -239,6 +248,14 @@ modelWithAdjustedWeights model =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        WeightValueSet id value ->
+            ( { model
+                | weights =
+                    setWeightValue id value model.weights
+              }
+            , Cmd.none
+            )
+
         WeightValueChanged id valueAsString ->
             let
                 parsedValue =
@@ -249,12 +266,7 @@ update msg model =
                         Maybe.Nothing ->
                             0.0
             in
-            ( { model
-                | weights =
-                    setWeightValue id parsedValue model.weights
-              }
-            , Cmd.none
-            )
+            update (WeightValueSet id parsedValue) model
 
         DataPointAdded input ->
             ( { model | dataPoints = model.dataPoints ++ [ input ] }
@@ -291,14 +303,19 @@ update msg model =
                 adjusted =
                     modelWithAdjustedWeights model
             in
-            ( { adjusted
-                | epochs = model.epochs + 1
-              }
+            ( { adjusted | epochs = adjusted.epochs + 1 }
             , Cmd.none
             )
 
+        TrainingTick ->
+            if model.epochs < epochLimit then
+                update Epoch model
+
+            else
+                ( { model | isTraining = False }, Cmd.none )
+
         TrainingStarted ->
-            ( { model | isTraining = True }, Cmd.none )
+            ( { model | isTraining = True, epochs = 0 }, Cmd.none )
 
         TrainingStopped ->
             ( { model | isTraining = False }, Cmd.none )
@@ -615,11 +632,26 @@ inputClearingButton =
         [ text "Clear data points" ]
 
 
-startTrainingButton : Html Msg
-startTrainingButton =
+startTrainingButton : Bool -> Html Msg
+startTrainingButton isTraining =
+    let
+        message =
+            if isTraining then
+                TrainingStopped
+
+            else
+                TrainingStarted
+
+        textString =
+            if isTraining then
+                "Stop training"
+
+            else
+                "Start training"
+    in
     button
-        [ onClick Epoch ]
-        [ text "Start training" ]
+        [ onClick message ]
+        [ text textString ]
 
 
 dataPointListing : List DataPoint -> Network -> Html Msg
@@ -641,55 +673,60 @@ inputControls dataPoints =
         Html.text ""
 
 
-expectedOutputControl : Html Msg
-expectedOutputControl =
-    input
-        [ type_ "range"
-        , Html.Attributes.min "0"
-        , Html.Attributes.max "1"
-        , Html.Attributes.step "1"
-        , onInput
-            (\v ->
-                String.toFloat v
-                    |> Maybe.withDefault 0.3
-                    |> DataPointTypeChanged
-            )
+expectedOutputControl : Model -> Html Msg
+expectedOutputControl model =
+    div [ class "expected-output-control" ]
+        [ label
+            [ class "expected-output-label"
+            ]
+            [ text "Expect"
+            , outputColorCircleHtml model.nextExpectedOutput model.nextExpectedOutput
+            , text "("
+            , model.nextExpectedOutput
+                |> String.fromFloat
+                |> text
+            , text ")"
+            ]
+        , input
+            [ type_ "range"
+            , Html.Attributes.min "0"
+            , Html.Attributes.max "1"
+            , Html.Attributes.step "1"
+            , onInput
+                (\v ->
+                    String.toFloat v
+                        |> Maybe.withDefault 0.3
+                        |> DataPointTypeChanged
+                )
+            ]
+            []
         ]
-        []
 
 
-sidebar : List DataPoint -> Network -> Html Msg
-sidebar dataPoints network =
+sidebar : Model -> Network -> Html Msg
+sidebar model network =
     aside
         []
-        [ expectedOutputControl
-        , startTrainingButton
-        , inputControls dataPoints
-        , dataPointListing dataPoints network
+        [ expectedOutputControl model
+        , startTrainingButton model.isTraining
+        , inputControls model.dataPoints
+        , dataPointListing model.dataPoints network
         ]
 
 
 graphCanvasContent : Model -> Network -> List Canvas.Renderable
 graphCanvasContent model network =
-    let
-        contentWithoutLine =
-            [ Canvas.shapes
-                [ fill canvasBackground ]
-                [ Canvas.rect
-                    ( 0, 0 )
-                    (toFloat model.graphDimensions.width)
-                    (toFloat model.graphDimensions.height)
-                ]
-            , canvasGraphLines model.graphDimensions
-            , graphPoints network model.graphDimensions model.dataPoints
-            ]
-    in
-    if model.epochs > 0 then
-        contentWithoutLine
-            ++ [ modelLine model.graphDimensions model.weights ]
-
-    else
-        contentWithoutLine
+    [ Canvas.shapes
+        [ fill canvasBackground ]
+        [ Canvas.rect
+            ( 0, 0 )
+            (toFloat model.graphDimensions.width)
+            (toFloat model.graphDimensions.height)
+        ]
+    , canvasGraphLines model.graphDimensions
+    , graphPoints network model.graphDimensions model.dataPoints
+    , modelLine model.graphDimensions model.weights
+    ]
 
 
 graph : Model -> Network -> Html Msg
@@ -705,11 +742,44 @@ graph model network =
         ]
 
 
+randomWeightValueGenerator : Random.Generator WeightValue
+randomWeightValueGenerator =
+    Random.float
+        (-0.5 * toFloat canvasSize)
+        (0.5 * toFloat canvasSize)
+
+
+randomWeightsTasks : Model -> List (Cmd Msg)
+randomWeightsTasks model =
+    let
+        taskForWeight weight =
+            Random.generate (WeightValueSet weight.id) randomWeightValueGenerator
+    in
+    List.map taskForWeight model.weights
+
+
+init : flags -> ( Model, Cmd Msg )
+init _ =
+    ( initialModel
+    , Cmd.batch
+        (randomWeightsTasks initialModel)
+    )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    if model.isTraining then
+        Time.every 100 (\_ -> TrainingTick)
+
+    else
+        Sub.none
+
+
 main : Program () Model Msg
 main =
     Browser.document
-        { init = \_ -> ( initialModel, Cmd.none )
+        { init = init
         , view = documentView
         , update = update
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         }

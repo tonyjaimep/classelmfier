@@ -116,8 +116,8 @@ canvasBackground =
     Color.black
 
 
-weightEditor : Weight -> Html Msg
-weightEditor weight =
+weightEditor : Bool -> Weight -> Html Msg
+weightEditor isReadonly weight =
     div
         [ class "weight-editor" ]
         [ label
@@ -125,7 +125,7 @@ weightEditor weight =
             [ text weight.id ]
         , input
             [ type_ "number"
-            , readonly True
+            , readonly isReadonly
             , value (String.fromFloat weight.value)
             , onInput (WeightValueChanged weight.id)
             ]
@@ -137,7 +137,7 @@ controls : Model -> Html Msg
 controls model =
     div
         [ class "weight-controls" ]
-        (List.map weightEditor model.weights)
+        (List.map (weightEditor model.isTraining) model.weights)
 
 
 neuronSigma : Model -> DataPoint -> Float

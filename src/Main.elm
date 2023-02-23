@@ -5,7 +5,7 @@ import Canvas exposing (Renderable, Shape)
 import Canvas.Settings exposing (fill, stroke)
 import Canvas.Settings.Line exposing (lineDash, lineWidth)
 import Color exposing (Color)
-import Html exposing (Html, aside, button, div, input, label, text)
+import Html exposing (Html, aside, button, div, input, label, span, text)
 import Html.Attributes exposing (class, readonly, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Html.Events.Extra.Mouse as Mouse
@@ -94,6 +94,11 @@ pointSize =
 learningRate : Float
 learningRate =
     0.4
+
+
+errorThreshold : Float
+errorThreshold =
+    0
 
 
 epochLimit : Int
@@ -221,19 +226,39 @@ adjustedWeight error weight dataDimension =
     }
 
 
+errorForDataPoint : Network -> DataPoint -> Float
+errorForDataPoint network dataPoint =
+    dataPoint.expectedOutput - network dataPoint
+
+
 adjustedWeights : DataPoint -> Model -> Weights
 adjustedWeights dataPoint model =
     let
         network =
             networkForModel model
-
-        error =
-            dataPoint.expectedOutput - network dataPoint
     in
     List.map2
-        (adjustedWeight error)
+        (adjustedWeight (errorForDataPoint network dataPoint))
         model.weights
         (dataPointVector dataPoint)
+
+
+absoluteErrorForDataPoint : Network -> DataPoint -> Float
+absoluteErrorForDataPoint network dataPoint =
+    dataPoint
+        |> errorForDataPoint network
+        |> abs
+
+
+totalAbsoluteError : Model -> Float
+totalAbsoluteError model =
+    let
+        network =
+            networkForModel model
+    in
+    List.foldl (+)
+        0
+        (List.map (absoluteErrorForDataPoint network) model.dataPoints)
 
 
 modelWithAdjustedWeights : Model -> Model
@@ -308,7 +333,11 @@ update msg model =
             )
 
         TrainingTick ->
-            if model.epochs < epochLimit then
+            let
+                shouldContinueTraining =
+                    model.epochs < epochLimit && totalAbsoluteError model > errorThreshold
+            in
+            if shouldContinueTraining then
                 update Epoch model
 
             else
@@ -545,11 +574,6 @@ weightValues weights =
     List.map .value weights
 
 
-weightDelta : Float -> NetworkOutput -> Float
-weightDelta error output =
-    learningRate * error * output
-
-
 dataPointVector : DataPoint -> List Float
 dataPointVector dataPoint =
     [ dataPoint.x1, dataPoint.x2, 1 ]
@@ -703,11 +727,20 @@ expectedOutputControl model =
         ]
 
 
+epochCounter : Int -> Html Msg
+epochCounter epochs =
+    span []
+        [ text "Epochs: "
+        , text (String.fromInt epochs)
+        ]
+
+
 sidebar : Model -> Network -> Html Msg
 sidebar model network =
     aside
         []
-        [ expectedOutputControl model
+        [ epochCounter model.epochs
+        , expectedOutputControl model
         , startTrainingButton model.isTraining
         , inputControls model.dataPoints
         , dataPointListing model.dataPoints network
